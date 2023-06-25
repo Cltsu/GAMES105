@@ -2,7 +2,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 
-def part1_inverse_kinematics(meta_data, joint_positions_, joint_orientations_, target_pose):
+def part1_inverse_kinematics(meta_data, joint_positions, joint_orientations, target_pose):
     """
     完成函数，计算逆运动学
     输入: 
@@ -36,9 +36,6 @@ def part1_inverse_kinematics(meta_data, joint_positions_, joint_orientations_, t
                 joint_offsets[i] = joint_initial_position[i] - joint_initial_position[joint_parent[i]]
         return joint_offsets
 
-    joint_positions = joint_positions_.copy()
-    joint_orientations = joint_orientations_.copy()
-
     joint_name = meta_data.joint_name
     joint_parent = meta_data.joint_parent
     joint_initial_position = meta_data.joint_initial_position
@@ -69,8 +66,9 @@ def part1_inverse_kinematics(meta_data, joint_positions_, joint_orientations_, t
         position_chain[i] = joint_positions[index]
         orientation_chain[i] = R.from_quat(joint_orientations[index])
         if index in path2 and i > 0:
-            orientation_chain[i] = R.from_quat(joint_orientations[path[i + 1]]).inv()
-            rotation_chain[i] = R.from_quat(joint_rotations[path[i - 1]]).inv()
+            # essential
+            orientation_chain[i] = R.from_quat(joint_orientations[path[i + 1]])
+            rotation_chain[i] = R.from_quat(joint_rotations[path[i]]).inv()
             offset_chain[i] = -joint_offsets[path[i - 1]]
         else:
             rotation_chain[i] = R.from_quat(joint_rotations[index])
@@ -116,16 +114,10 @@ def part1_inverse_kinematics(meta_data, joint_positions_, joint_orientations_, t
     for i in range(len(path)):
         index = path[i]
         joint_positions[index] = position_chain[i]
-        if joint_parent[index] == -1:
-            joint_rotations[path[i - 1]] = rotation_chain[i + 1].inv().as_quat()
-        elif index in path2 and i > 0:
-            joint_rotations[path[i - 1]] = rotation_chain[i].inv().as_quat()
+        if index in path2 and i > 0:
+            joint_rotations[index] = rotation_chain[i].inv().as_quat()
         else:
             joint_rotations[index] = rotation_chain[i].as_quat()
-
-    # joint_rotations[path[len[path2]]] = rotation_chain[len(path2)].inv().as_quat()
-
-    # return joint_positions, joint_orientations
 
     # 如果rootjoint在IK链之中，那么需要更新rootjoint的信息
     if joint_parent.index(-1) in path:
@@ -134,23 +126,15 @@ def part1_inverse_kinematics(meta_data, joint_positions_, joint_orientations_, t
             joint_orientations[0] = orientation_chain[root_index].as_quat()
             joint_positions[0] = position_chain[root_index]
 
-    print('-'*100)
-    print(joint_orientations[0])
-    print(joint_positions[0])
     # return joint_positions, joint_orientations
-
-    # path2与rootjoint链接的第一个关节的offset需要改
-    # if len(path2) > 1:
-    #     joint_offsets[path2[-2]] = np.dot(rotation_chain[root_index].inv().as_matrix(), joint_offsets[path2[-2]])
 
     # 最后计算一遍FK，得到更新后的position和orientation
     for i in range(1, len(joint_positions)):
         p = joint_parent[i]
         joint_orientations[i] = (R.from_quat(joint_orientations[p]) * R.from_quat(joint_rotations[i])).as_quat()
         joint_positions[i] = joint_positions[p] + np.dot(R.from_quat(joint_orientations[p]).as_matrix(), joint_offsets[i])
-        
-    print(joint_orientations[0])
-    print(joint_positions[0])
+
+
     return joint_positions, joint_orientations
 
 
