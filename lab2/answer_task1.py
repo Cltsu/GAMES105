@@ -208,7 +208,15 @@ class BVHMotion():
         Ry = np.zeros_like(rotation)
         Rxz = np.zeros_like(rotation)
         # TODO: 你的代码
-        
+        rotation_matrix = R.from_quat(rotation).as_matrix()
+        R1 = rotation_matrix[:][1]
+        R1 = R1 / np.linalg.norm(R1)
+        y_axis = np.array([0.,1.,0.])
+        rot_axis = np.cross(R1, y_axis)
+        theta = np.arccos(np.dot(R1, y_axis))
+        R_prime = R.from_rotvec(theta * rot_axis)
+        Ry = (R_prime * R.from_quat(rotation)).as_quat()
+        Rxz = (R.from_quat(Ry).inv() * R.from_quat(rotation)).as_quat()
         return Ry, Rxz
     
     # part 1
@@ -232,6 +240,28 @@ class BVHMotion():
         offset = target_translation_xz - res.joint_position[frame_num, 0, [0,2]]
         res.joint_position[:, 0, [0,2]] += offset
         # TODO: 你的代码
+        
+        # 把第一帧的根节点的face转到target
+        Ry_Rxz = np.apply_along_axis(self.decompose_rotation_with_yaxis, axis=1, arr=res.joint_rotation[:, 0, :])
+        rot_target = np.array([target_facing_direction_xz[0], 0, target_facing_direction_xz[1]])
+        # source是Ry的z轴，target是目标的z轴，旋转轴是y轴
+        rot_source = R.from_quat(Ry_Rxz[frame_num, 0, :]).as_matrix()[:, 2]
+        rot_target = rot_target / np.linalg.norm(rot_target)
+        rot_source = rot_source / np.linalg.norm(rot_source)
+        rot_axis = np.cross(rot_source, rot_target)
+        rot_axis = rot_axis / np.linalg.norm(rot_axis)
+        theta = np.arccos(np.dot(rot_source, rot_target))
+        delta_rotation = R.from_rotvec(theta * rot_axis)
+
+        # 把所有frame的根节点的rotation旋转delta_rotation
+        res.joint_rotation[:, 0, :] = (delta_rotation * R.from_quat(res.joint_rotation[:, 0, :])).as_quat()
+
+        # 先取出所有frame之间rootjoint的offset，旋转，最后forward更新rootjoint position。offset和position不能直接共同迭代处理
+        rootjoint_offset = res.joint_position[1:, 0, :] - res.joint_position[:-1, 0, :]
+        rootjoint_offset = delta_rotation.apply(rootjoint_offset)
+        for i in range(1, len(res.joint_position)):
+            res.joint_position[i, 0, :] = rootjoint_offset[i - 1] + res.joint_position[i - 1, 0, :]
+
         return res
 
 # part2
