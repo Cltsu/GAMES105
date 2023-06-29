@@ -72,6 +72,8 @@ def part2_interpolate(viewer, v):
     # 计算插值系数
     v1 = (walk_forward.joint_position[-1,0,2] / walk_forward.motion_length)*60
     v2 = (run_forward.joint_position[-1,0,2] / run_forward.motion_length)*60
+    # print(v1)
+    # print(v2)
     blend_weight = (v-v1)/(v2-v1)
     distance = (1-blend_weight)*walk_forward.joint_position[-1,0,2] + blend_weight*run_forward.joint_position[-1,0,2]
     cycle_time = np.around(distance / v*60).astype(np.int32)
@@ -135,8 +137,10 @@ def main():
     # 请自行取消需要的注释并更改测试setting_id
     # 请不要同时取消多个注释，否则前者会被后者覆盖
     
-    part1_translation_and_rotation(viewer, 0) # 数字代表不同的测试setting
-    # part2_interpolate(viewer, 1) # 数字代表不同期望的前进速度
+    part1_translation_and_rotation(viewer, 1) # 数字代表不同的测试setting
+    # v1 = 0.7325039351123165
+    # v2 = 2.5449470092136584
+    # part2_interpolate(viewer, 1.5) # 数字代表不同期望的前进速度
     # part3_build_loop(viewer)
     # part4_concatenate(viewer, 0) # 数字代表不同的测试setting
     viewer.run()

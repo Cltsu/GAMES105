@@ -1,5 +1,6 @@
 import numpy as np
 import copy
+import math
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 # ------------- lab1里的代码 -------------#
@@ -209,7 +210,7 @@ class BVHMotion():
         Rxz = np.zeros_like(rotation)
         # TODO: 你的代码
         rotation_matrix = R.from_quat(rotation).as_matrix()
-        R1 = rotation_matrix[:][1]
+        R1 = rotation_matrix[:, 1]
         R1 = R1 / np.linalg.norm(R1)
         y_axis = np.array([0.,1.,0.])
         rot_axis = np.cross(R1, y_axis)
@@ -241,28 +242,50 @@ class BVHMotion():
         res.joint_position[:, 0, [0,2]] += offset
         # TODO: 你的代码
         
-        # 把第一帧的根节点的face转到target
-        Ry_Rxz = np.apply_along_axis(self.decompose_rotation_with_yaxis, axis=1, arr=res.joint_rotation[:, 0, :])
+        # 把第frame_num帧的根节点的face转到target
+        Ry_Rxz = self.decompose_rotation_with_yaxis(res.joint_rotation[frame_num, 0, :])
         rot_target = np.array([target_facing_direction_xz[0], 0, target_facing_direction_xz[1]])
         # source是Ry的z轴，target是目标的z轴，旋转轴是y轴
-        rot_source = R.from_quat(Ry_Rxz[frame_num, 0, :]).as_matrix()[:, 2]
+        rot_source = R.from_quat(Ry_Rxz[0][:]).as_matrix()[:, 2]
         rot_target = rot_target / np.linalg.norm(rot_target)
         rot_source = rot_source / np.linalg.norm(rot_source)
         rot_axis = np.cross(rot_source, rot_target)
-        rot_axis = rot_axis / np.linalg.norm(rot_axis)
+        # 虽然理论上rot_axis就是y轴，但是float的精度问题，必须重新设置为y轴，不然人物会飞
+        if rot_axis[1] > 0.:
+            rot_axis = np.array([0.,1.,0.])
+        else:
+            rot_axis = np.array([0.,-1.,0.])
         theta = np.arccos(np.dot(rot_source, rot_target))
         delta_rotation = R.from_rotvec(theta * rot_axis)
 
-        # 把所有frame的根节点的rotation旋转delta_rotation
-        res.joint_rotation[:, 0, :] = (delta_rotation * R.from_quat(res.joint_rotation[:, 0, :])).as_quat()
+        # 修改orientation
+        orientation_center = R.from_quat(res.joint_rotation[frame_num, 0, :])
+        relative_rotation = np.apply_along_axis(lambda q : orientation_center.inv() * R.from_quat(q), axis=1, arr=res.joint_rotation[:, 0, :])
+        orientation_center = delta_rotation * orientation_center
+        res.joint_rotation[:, 0, :] = np.array([(orientation_center * r).as_quat() for r in relative_rotation])
 
-        # 先取出所有frame之间rootjoint的offset，旋转，最后forward更新rootjoint position。offset和position不能直接共同迭代处理
-        rootjoint_offset = res.joint_position[1:, 0, :] - res.joint_position[:-1, 0, :]
-        rootjoint_offset = delta_rotation.apply(rootjoint_offset)
-        for i in range(1, len(res.joint_position)):
-            res.joint_position[i, 0, :] = rootjoint_offset[i - 1] + res.joint_position[i - 1, 0, :]
+        # 修改position
+        offset_center = res.joint_position[frame_num, 0, [0,2]]
+        res.joint_position[:, 0, [0,2]] -= offset_center
+        res.joint_position[:, 0, :] = np.apply_along_axis(delta_rotation.apply, axis=1, arr=res.joint_position[:, 0, :])
+        res.joint_position[:, 0, [0,2]] += offset_center
 
         return res
+
+
+def get_interpolate_pose(rot1, rot2, pos1, pos2, w):
+    # 这个slerp的参数times到底是什么意思
+    ret_rot = np.empty_like(rot1)
+    for i in range(len(rot1)):
+        slerp = Slerp([0, 1], R.from_quat([rot1[i], rot2[i]]))
+        ret_rot[i] = slerp([w]).as_quat()
+
+    # 使用欧拉角直接线性插值，会产生鬼畜
+    # interpolate_euler = (1 - w) * R.from_quat(rot1).as_euler('XYZ') + w * R.from_quat(rot2).as_euler('XYZ')
+    # ret_rot = R.from_euler('XYZ', interpolate_euler).as_quat()
+
+    ret_pos = (1 - w) * pos1 + w * pos2
+    return ret_rot, ret_pos
 
 # part2
 def blend_two_motions(bvh_motion1, bvh_motion2, alpha):
@@ -278,9 +301,36 @@ def blend_two_motions(bvh_motion1, bvh_motion2, alpha):
     res.joint_position = np.zeros((len(alpha), res.joint_position.shape[1], res.joint_position.shape[2]))
     res.joint_rotation = np.zeros((len(alpha), res.joint_rotation.shape[1], res.joint_rotation.shape[2]))
     res.joint_rotation[...,3] = 1.0
-
-    # TODO: 你的代码
     
+    # TODO: 你的代码
+    for i in range(len(alpha)):
+        cur_time = i / (len(alpha) - 1.)
+
+        frame_num1 = len(bvh_motion1.joint_rotation)
+        time1 = cur_time * (bvh_motion1.motion_length - 1)
+        index1 = math.floor(time1)
+        alpha1 = time1 - index1
+        rotation1, position1 = get_interpolate_pose(\
+            bvh_motion1.joint_rotation[index1, ...], \
+            bvh_motion1.joint_rotation[(index1 + 1) % frame_num1, ...], \
+            bvh_motion1.joint_position[index1, ...], \
+            bvh_motion1.joint_position[(index1 + 1) % frame_num1, ...], \
+            alpha1)
+
+        frame_num2 = len(bvh_motion2.joint_rotation)
+        time2 = cur_time * (bvh_motion2.motion_length - 1)
+        index2 = math.floor(time2)
+        alpha2 = time2 - index2
+        rotation2, position2 = get_interpolate_pose(\
+            bvh_motion2.joint_rotation[index2, ...], \
+            bvh_motion2.joint_rotation[(index2 + 1) % frame_num2, ...], \
+            bvh_motion2.joint_position[index2, ...], \
+            bvh_motion2.joint_position[(index2 + 1) % frame_num2, ...], \
+            alpha2)
+
+        res.joint_rotation[i, ...], res.joint_position[i, ...] = get_interpolate_pose(\
+            rotation1, rotation2, position1, position2, alpha[i])
+
     return res
 
 # part3
