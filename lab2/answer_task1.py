@@ -214,10 +214,12 @@ class BVHMotion():
         R1 = R1 / np.linalg.norm(R1)
         y_axis = np.array([0.,1.,0.])
         rot_axis = np.cross(R1, y_axis)
+        rot_axis = rot_axis / np.linalg.norm(rot_axis)
         theta = np.arccos(np.dot(R1, y_axis))
         R_prime = R.from_rotvec(theta * rot_axis)
         Ry = (R_prime * R.from_quat(rotation)).as_quat()
         Rxz = (R.from_quat(Ry).inv() * R.from_quat(rotation)).as_quat()
+
         return Ry, Rxz
     
     # part 1
@@ -259,10 +261,7 @@ class BVHMotion():
         delta_rotation = R.from_rotvec(theta * rot_axis)
 
         # 修改orientation
-        orientation_center = R.from_quat(res.joint_rotation[frame_num, 0, :])
-        relative_rotation = np.apply_along_axis(lambda q : orientation_center.inv() * R.from_quat(q), axis=1, arr=res.joint_rotation[:, 0, :])
-        orientation_center = delta_rotation * orientation_center
-        res.joint_rotation[:, 0, :] = np.array([(orientation_center * r).as_quat() for r in relative_rotation])
+        res.joint_rotation[:, 0, :] = np.apply_along_axis(lambda q : (delta_rotation * R.from_quat(q)).as_quat(), axis=1, arr=res.joint_rotation[:, 0, :])
 
         # 修改position
         offset_center = res.joint_position[frame_num, 0, [0,2]]
@@ -345,7 +344,8 @@ def build_loop_motion(bvh_motion):
     res = bvh_motion.raw_copy()
     
     from smooth_utils import build_loop_motion
-    return build_loop_motion(res)
+    res = build_loop_motion(res)
+    return res
 
 # part4
 def concatenate_two_motions(bvh_motion1, bvh_motion2, mix_frame1, mix_time):
