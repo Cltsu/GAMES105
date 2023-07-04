@@ -141,8 +141,8 @@ def main():
     # v1 = 0.7325039351123165
     # v2 = 2.5449470092136584
     # part2_interpolate(viewer, 1.5) # 数字代表不同期望的前进速度
-    part3_build_loop(viewer)
-    # part4_concatenate(viewer, 0) # 数字代表不同的测试setting
+    # part3_build_loop(viewer)
+    part4_concatenate(viewer, 0) # 数字代表不同的测试setting
     viewer.run()
     
 if __name__ == '__main__':

@@ -211,12 +211,10 @@ class BVHMotion():
         # TODO: 你的代码
         rotation_matrix = R.from_quat(rotation).as_matrix()
         R1 = rotation_matrix[:, 1]
-        R1 = R1 / np.linalg.norm(R1)
         y_axis = np.array([0.,1.,0.])
         rot_axis = np.cross(R1, y_axis)
-        rot_axis = rot_axis / np.linalg.norm(rot_axis)
-        theta = np.arccos(np.dot(R1, y_axis))
-        R_prime = R.from_rotvec(theta * rot_axis)
+        theta = np.arccos(np.dot(R1, y_axis) / np.linalg.norm(R1))
+        R_prime = R.from_rotvec(theta * rot_axis / np.linalg.norm(rot_axis))
         Ry = (R_prime * R.from_quat(rotation)).as_quat()
         Rxz = (R.from_quat(Ry).inv() * R.from_quat(rotation)).as_quat()
 
@@ -245,10 +243,10 @@ class BVHMotion():
         # TODO: 你的代码
         
         # 把第frame_num帧的根节点的face转到target
-        Ry_Rxz = self.decompose_rotation_with_yaxis(res.joint_rotation[frame_num, 0, :])
+        Ry, _ = self.decompose_rotation_with_yaxis(res.joint_rotation[frame_num, 0, :])
         rot_target = np.array([target_facing_direction_xz[0], 0, target_facing_direction_xz[1]])
         # source是Ry的z轴，target是目标的z轴，旋转轴是y轴
-        rot_source = R.from_quat(Ry_Rxz[0][:]).as_matrix()[:, 2]
+        rot_source = R.from_quat(Ry).as_matrix()[:, 2]
         rot_target = rot_target / np.linalg.norm(rot_target)
         rot_source = rot_source / np.linalg.norm(rot_source)
         rot_axis = np.cross(rot_source, rot_target)
@@ -347,6 +345,23 @@ def build_loop_motion(bvh_motion):
     res = build_loop_motion(res)
     return res
 
+def nearest_frame(motion, target_pose):
+    def pose_distance(pose1, pose2):
+        total_dis = 0.
+        for i in range(1, pose1.shape[0]):
+            total_dis += np.linalg.norm(pose1[i] - pose2[i])
+        return total_dis
+
+    min_dis = float("inf")
+    ret = -1
+    for i in range(motion.motion_length):
+        dis = pose_distance(motion.joint_rotation[i], target_pose)
+        print(dis)
+        if dis < min_dis:
+            ret = i
+            min_dis = dis
+    return ret
+
 # part4
 def concatenate_two_motions(bvh_motion1, bvh_motion2, mix_frame1, mix_time):
     '''
@@ -357,11 +372,42 @@ def concatenate_two_motions(bvh_motion1, bvh_motion2, mix_frame1, mix_time):
         你可能需要用到BVHMotion.sub_sequence 和 BVHMotion.append
     '''
     res = bvh_motion1.raw_copy()
-    
     # TODO: 你的代码
     # 下面这种直接拼肯定是不行的(
-    res.joint_position = np.concatenate([res.joint_position[:mix_frame1], bvh_motion2.joint_position], axis=0)
-    res.joint_rotation = np.concatenate([res.joint_rotation[:mix_frame1], bvh_motion2.joint_rotation], axis=0)
-    
+    # res.joint_position = np.concatenate([res.joint_position[:mix_frame1], bvh_motion2.joint_position], axis=0)
+    # res.joint_rotation = np.concatenate([res.joint_rotation[:mix_frame1], bvh_motion2.joint_rotation], axis=0)
+
+    # 将bvh2设置为循环动作
+    bvh_motion2 = build_loop_motion(bvh_motion2)
+    motion = bvh_motion2
+    pos = motion.joint_position[-1,0,[0,2]]
+    rot = motion.joint_rotation[-1,0]
+    facing_axis = R.from_quat(rot).apply(np.array([0,0,1])).flatten()[[0,2]]
+    new_motion = motion.translation_and_rotation(0, pos, facing_axis)
+    bvh_motion2.append(new_motion)
+
+
+    start_frame2 = nearest_frame(bvh_motion2, bvh_motion1.joint_rotation[mix_frame1])
+    translation_xz = bvh_motion1.joint_position[mix_frame1, 0, [0,2]]
+    Ry, _ = bvh_motion1.decompose_rotation_with_yaxis(bvh_motion1.joint_rotation[mix_frame1, 0, :])
+    facing_direction_xz = R.from_quat(Ry).as_matrix()[2,[0,2]]
+    facing_direction_xz = [0, 1.0]
+    bvh_motion2 = bvh_motion2.translation_and_rotation(start_frame2, translation_xz, facing_direction_xz)
+
+    cur_mix_frame1 = mix_frame1
+    cur_mix_frame2 = start_frame2
+    for i in range(mix_time):
+        cur_mix_frame1 += 1
+        cur_mix_frame2 += 1
+        res.joint_rotation[cur_mix_frame1], res.joint_position[cur_mix_frame1] = get_interpolate_pose(\
+            res.joint_rotation[cur_mix_frame1],
+            bvh_motion2.joint_rotation[cur_mix_frame2],
+            res.joint_position[cur_mix_frame1],
+            bvh_motion2.joint_position[cur_mix_frame2],
+            (i+1.)/mix_time)
+
+    res.joint_position = np.concatenate([res.joint_position[:cur_mix_frame1], bvh_motion2.joint_position[cur_mix_frame2:]], axis=0)
+    res.joint_rotation = np.concatenate([res.joint_rotation[:cur_mix_frame1], bvh_motion2.joint_rotation[cur_mix_frame2:]], axis=0)
+   
     return res
 
