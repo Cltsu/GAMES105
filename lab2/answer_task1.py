@@ -214,6 +214,8 @@ class BVHMotion():
         y_axis = np.array([0.,1.,0.])
         rot_axis = np.cross(R1, y_axis)
         theta = np.arccos(np.dot(R1, y_axis) / np.linalg.norm(R1))
+        if theta == 0.:
+            return [1., 0., 0., 0.], rotation
         R_prime = R.from_rotvec(theta * rot_axis / np.linalg.norm(rot_axis))
         Ry = (R_prime * R.from_quat(rotation)).as_quat()
         Rxz = (R.from_quat(Ry).inv() * R.from_quat(rotation)).as_quat()
@@ -362,8 +364,59 @@ def nearest_frame(motion, target_pose):
             min_dis = dis
     return ret
 
-# part4
+# part4 linear interpolation
 def concatenate_two_motions(bvh_motion1, bvh_motion2, mix_frame1, mix_time):
+    '''
+    将两个bvh动作平滑地连接起来，mix_time表示用于混合的帧数
+    混合开始时间是第一个动作的第mix_frame1帧
+    虽然某些混合方法可能不需要mix_time，但是为了保证接口一致，我们还是保留这个参数
+    Tips:
+        你可能需要用到BVHMotion.sub_sequence 和 BVHMotion.append
+    '''
+    res = bvh_motion1.raw_copy()
+    # TODO: 你的代码
+    # 下面这种直接拼肯定是不行的(
+    # res.joint_position = np.concatenate([res.joint_position[:mix_frame1], bvh_motion2.joint_position], axis=0)
+    # res.joint_rotation = np.concatenate([res.joint_rotation[:mix_frame1], bvh_motion2.joint_rotation], axis=0)
+
+    # 将bvh2设置为循环动作
+    bvh_motion2 = build_loop_motion(bvh_motion2)
+    motion = bvh_motion2
+    pos = motion.joint_position[-1,0,[0,2]]
+    rot = motion.joint_rotation[-1,0]
+    facing_axis = R.from_quat(rot).apply(np.array([0,0,1])).flatten()[[0,2]]
+    new_motion = motion.translation_and_rotation(0, pos, facing_axis)
+    bvh_motion2.append(new_motion)
+
+
+    start_frame2 = nearest_frame(bvh_motion2, bvh_motion1.joint_rotation[mix_frame1])
+    translation_xz = bvh_motion1.joint_position[mix_frame1, 0, [0,2]]
+    Ry, _ = bvh_motion1.decompose_rotation_with_yaxis(bvh_motion1.joint_rotation[mix_frame1, 0, :])
+    facing_direction_xz = R.from_quat(Ry).as_matrix()[2,[0,2]]
+    facing_direction_xz = [0, 1.0]
+    bvh_motion2 = bvh_motion2.translation_and_rotation(start_frame2, translation_xz, facing_direction_xz)
+
+    cur_mix_frame1 = mix_frame1
+    cur_mix_frame2 = start_frame2
+    for i in range(mix_time):
+        cur_mix_frame1 += 1
+        cur_mix_frame2 += 1
+        res.joint_rotation[cur_mix_frame1], res.joint_position[cur_mix_frame1] = get_interpolate_pose(\
+            res.joint_rotation[cur_mix_frame1],
+            bvh_motion2.joint_rotation[cur_mix_frame2],
+            res.joint_position[cur_mix_frame1],
+            bvh_motion2.joint_position[cur_mix_frame2],
+            (i+1.)/mix_time)
+
+    res.joint_position = np.concatenate([res.joint_position[:cur_mix_frame1], bvh_motion2.joint_position[cur_mix_frame2:]], axis=0)
+    res.joint_rotation = np.concatenate([res.joint_rotation[:cur_mix_frame1], bvh_motion2.joint_rotation[cur_mix_frame2:]], axis=0)
+   
+    return res
+
+
+
+# part4 inertailization
+def concatenate_two_motions_inertailization(bvh_motion1, bvh_motion2, mix_frame1, mix_time):
     '''
     将两个bvh动作平滑地连接起来，mix_time表示用于混合的帧数
     混合开始时间是第一个动作的第mix_frame1帧

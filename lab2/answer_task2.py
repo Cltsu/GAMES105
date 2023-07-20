@@ -1,17 +1,188 @@
 # 以下部分均为可更改部分
 
+from scipy.spatial import KDTree
 from answer_task1 import *
+from smooth_utils import *
+   
+class Inertializer():
+    @staticmethod
+    def compute_velocity(joint_translation, joint_orientation, dt):
+        diff_vel = (joint_translation[1:] - joint_translation[:-1]) / dt
+        diff_vel = np.insert(diff_vel, 0, np.zeros_like(diff_vel[0]), axis=0)
+        for i in range(len(joint_translation)):
+            cur_orientation = R.from_quat(joint_orientation[i, 0, :])
+            # except root joint
+            diff_vel[i, 1:, :] = cur_orientation.inv().apply(diff_vel[i, 1:, :])
+        return diff_vel
+
+
+    @staticmethod
+    def compute_angular_velocity(joint_orientation, dt):
+        diff_avel = quat_to_avel(joint_orientation, dt)
+        diff_avel = np.insert(diff_avel, 0, np.zeros_like(diff_avel[0]), axis=0)
+        return diff_avel
+
+
+    @staticmethod
+    def inertialize_pose_transition(
+
+    ):
+        pass
+
+
+    @staticmethod
+    def inertialize_pose_update(
+
+    ):
+        pass
 
 class CharacterController():
     def __init__(self, controller) -> None:
         self.motions = []
-        self.motions.append(BVHMotion('motion_material/walk_forward.bvh'))
+        self.motions.append(BVHMotion('motion_material/kinematic_motion/long_walk.bvh'))
+        self.motion = self.motions[0]
         self.controller = controller
-        self.cur_root_pos = None
-        self.cur_root_rot = None
         self.cur_frame = 0
+        self.dt = 1. / 60.
+
+        self.counter = 4
+        self.cur_count = self.counter
+
+        # dataset
+        self.feature_vectors = self.extract_feature_vector()
+        self.pose_vectors = self.extract_pose_vector()
+        self.features_offset, self.features_scale = self.normalize_features()
+        self.feature_kd_tree = KDTree(self.feature_vectors[:-60])
+
+
+        # 当前pose
+        self.bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
+        self.bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
+        self.bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
+        self.bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
+
+        # cur_frame
+        self.cur_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
+        self.cur_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
+        self.cur_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
+        self.cur_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
+
+        # next_frame
+        self.trans_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
+        self.trans_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
+        self.trans_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
+        self.trans_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]        
+
+        # offset
+        self.offset_positions = np.zeros(self.pose_vectors['joint_position'][0].shape)
+        self.offset_rotations = np.zeros(self.pose_vectors['joint_rotation'][0].shape)
+        self.offset_vels = np.zeros(self.pose_vectors['joint_velocity'][0].shape)
+        self.offset_avels = np.zeros(self.pose_vectors['joint_avelocity'][0].shape)
+
+        # adjust pose
+
+
+
+        # final pose
+        self.global_bone_positions = np.zeros(self.pose_vectors['joint_position'][0].shape)
+        self.global_bone_rotations = np.zeros(self.pose_vectors['joint_rotation'][0].shape)
+        # self.global_vels = np.zeros(self.pose_vectors['joint_velocity'][0].shape)
+        # self.global_avels = np.zeros(self.pose_vectors['joint_avelocity'][0].shape)
+
         pass
+
+
+    ################################################################################################
+    # datset functions
+    ################################################################################################
+
+    def normalize_features(self):
+        # compute mean and std
+        features_offset = np.mean(self.feature_vectors, axis=0)
+        features_scale = np.std(self.feature_vectors, axis=0)
+        
+        # normalize features
+        self.feature_vectors = (self.feature_vectors - features_offset) / features_scale
+        
+        return features_offset, features_scale
+
+
+    def normalize_one_feature(self, feature):
+        return np.divide(feature - self.features_offset, self.features_scale)
+
+
+    def denormalize_one_feature(self, feature):
+        return np.multiply(feature, self.features_scale) + self.features_offset
     
+
+    def extract_feature_vector(self):
+        feature_vectors = np.zeros([self.motions[0].motion_length, 27])
+        motion = self.motions[0]
+        joint_name = self.motions[0].joint_name
+        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
+        for i in range(motion.motion_length):
+            # local to charator的量, 需要左乘facing direction的逆
+            cur_orientation_inv = R.from_quat(joint_orientation[i, 0, :]).inv()
+            if i < motion.motion_length - 60:
+                # 6D future trajectory postion local to the charatre
+                feature_vectors[i, 0:2] = cur_orientation_inv.apply(joint_translation[i + 20, 0, :] - joint_translation[i, 0, :])[[0, 2]]
+                feature_vectors[i, 2:4] = cur_orientation_inv.apply(joint_translation[i + 40, 0, :] - joint_translation[i, 0, :])[[0, 2]]
+                feature_vectors[i, 4:6] = cur_orientation_inv.apply(joint_translation[i + 60, 0, :] - joint_translation[i, 0, :])[[0, 2]]
+                # 6D future trajectory facing direction
+                Ry1, _ = motion.decompose_rotation_with_yaxis((cur_orientation_inv * R.from_quat(joint_orientation[i + 20, 0, :])).as_quat())
+                Ry2, _ = motion.decompose_rotation_with_yaxis((cur_orientation_inv * R.from_quat(joint_orientation[i + 40, 0, :])).as_quat())
+                Ry3, _ = motion.decompose_rotation_with_yaxis((cur_orientation_inv * R.from_quat(joint_orientation[i + 60, 0, :])).as_quat())
+                feature_vectors[i, 6:  8] = R.from_quat(Ry1).as_matrix()[:, 2][[0,2]]
+                feature_vectors[i, 8: 10] = R.from_quat(Ry2).as_matrix()[:, 2][[0,2]]
+                feature_vectors[i, 10:12] = R.from_quat(Ry3).as_matrix()[:, 2][[0,2]]
+            # 6D foot local position
+            feature_vectors[i, 12:15] = cur_orientation_inv.apply(joint_translation[i, joint_name.index('rAnkle'), :] - joint_translation[i, 0, :])
+            feature_vectors[i, 15:18] = cur_orientation_inv.apply(joint_translation[i, joint_name.index('lAnkle'), :] - joint_translation[i, 0, :])
+            
+            if i != 0:
+                delta_time = self.dt
+                # 3D hip local velcity
+                feature_vectors[i, 18:21] = cur_orientation_inv.apply(\
+                    (joint_translation[i, joint_name.index('RootJoint'), :] - joint_translation[i - 1, joint_name.index('RootJoint'), :]) / delta_time)
+                # 6D foot local velcity
+                hip_velocity = feature_vectors[i, 18:21]
+                feature_vectors[i, 21:24] = cur_orientation_inv.apply(\
+                    (joint_translation[i, joint_name.index('rAnkle'), :] - joint_translation[i - 1, joint_name.index('rAnkle'), :]) / delta_time) - hip_velocity
+                feature_vectors[i, 24:27] = cur_orientation_inv.apply(\
+                    (joint_translation[i, joint_name.index('lAnkle'), :] - joint_translation[i - 1, joint_name.index('lAnkle'), :]) / delta_time) - hip_velocity
+
+        return feature_vectors
+    
+
+    def extract_pose_vector(self):
+        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
+        pose_vector = {
+            'joint_position': self.motion.joint_position,
+            'joint_rotation': self.motion.joint_rotation,
+            'joint_velocity': Inertializer.compute_velocity(joint_translation, joint_orientation, self.dt),
+            'joint_avelocity': Inertializer.compute_angular_velocity(self.motion.joint_rotation, self.dt),
+            # 'root_velocity': [],
+            # 'root_avelocity': [],
+        }
+        return pose_vector
+
+
+    def query(self, cur_feature):
+        pass
+
+
+
+    def search_best_frame(self, cur_feature):
+        pass
+
+    
+
+
+    ################################################################################################
+    # tick functions
+    ################################################################################################
+
+
     def update_state(self, 
                      desired_pos_list, 
                      desired_rot_list,
@@ -39,19 +210,61 @@ class CharacterController():
             如果和你的角色动作速度对不上,你可以在init或这里对属性进行修改
         '''
         # 一个简单的例子，输出第i帧的状态
-        joint_name = self.motions[0].joint_name
-        joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
-        joint_translation = joint_translation[self.cur_frame]
-        joint_orientation = joint_orientation[self.cur_frame]
+        # joint_name = self.motions[0].joint_name
+        # joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
+        # joint_translation = joint_translation[self.cur_frame]
+        # joint_orientation = joint_orientation[self.cur_frame]
         
-        self.cur_root_pos = joint_translation[0]
-        self.cur_root_rot = joint_orientation[0]
-        self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
+        # self.cur_root_pos = joint_translation[0]
+        # self.cur_root_rot = joint_orientation[0]
+        # self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
+
+        # 计算当前的feature vector
+
+        cur_feature_vector = np.zeros([27])
+        root_orientation = self.bone_rotations[0]
+        root_position = self.bone_positions[0]
+
+        # 计算trajectory
+        root_orientation_inv = R.from_quat(root_orientation).inv()
+        cur_feature_vector[0:2] = root_orientation_inv.apply(desired_pos_list[1] - root_position)[[0, 2]]
+        cur_feature_vector[2:4] = root_orientation_inv.apply(desired_pos_list[2] - root_position)[[0, 2]]
+        cur_feature_vector[4:6] = root_orientation_inv.apply(desired_pos_list[3] - root_position)[[0, 2]]
+        Ry1, _ = self.motion.decompose_rotation_with_yaxis((root_orientation_inv * R.from_quat(desired_rot_list[1])).as_quat())
+        Ry2, _ = self.motion.decompose_rotation_with_yaxis((root_orientation_inv * R.from_quat(desired_rot_list[2])).as_quat())
+        Ry3, _ = self.motion.decompose_rotation_with_yaxis((root_orientation_inv * R.from_quat(desired_rot_list[3])).as_quat())
+        cur_feature_vector[6:  8] = R.from_quat(Ry1).as_matrix()[:, 2][[0,2]]
+        cur_feature_vector[8: 10] = R.from_quat(Ry2).as_matrix()[:, 2][[0,2]]
+        cur_feature_vector[10:12] = R.from_quat(Ry3).as_matrix()[:, 2][[0,2]]
+        # normalize tarjectory feature
+        cur_feature_vector[:12] = np.divide(cur_feature_vector[:12] - self.features_offset[:12], self.features_scale[:12])
+
+        # mocap feature
+        cur_feature_vector[12:27] = self.feature_vectors[self.cur_frame][12:27]
+
+        # search best match next frame
+        best_cost, best_frame = self.feature_kd_tree.query(cur_feature_vector)
+
+        # update offset
+        if self.cur_count == 0:
+            self.cur_count = self.counter
+            self.cur_frame = best_frame + 1
+        else:
+            self.cur_count -= 1
+            self.cur_frame += 1
         
-        return joint_name, joint_translation, joint_orientation
+        print(self.motion.joint_position[13585,0,:])
+        print(self.cur_frame)
+        self.bone_positions = self.motion.joint_position[self.cur_frame]
+        self.bone_rotations = self.motion.joint_rotation[self.cur_frame]
+
+        # inertialize
+        
+
+        
     
     
-    def sync_controller_and_character(self, controller, character_state):
+    def sync_controller_and_character(self, controller):
         '''
         这一部分用于同步你的角色和手柄的状态
         更新后很有可能会出现手柄和角色的位置不一致，这里可以用于修正
@@ -64,8 +277,25 @@ class CharacterController():
         '''
         
         # 一个简单的例子，将手柄的位置与角色对齐
-        controller.set_pos(self.cur_root_pos)
-        controller.set_rot(self.cur_root_rot)
+        # controller.set_pos(self.cur_root_pos)
+        # controller.set_rot(self.cur_root_rot)
         
-        return character_state
-    # 你的其他代码,state matchine, motion matching, learning, etc.
+        self.bone_positions[0][0] = controller.position[0]
+        self.bone_positions[0][2] = controller.position[2]
+        self.bone_rotations[0] = controller.rotation
+        
+
+
+    def full_forward_kinematics(self):
+        joint_parent = self.motion.joint_parent
+
+        self.global_bone_positions[0] = self.bone_positions[0]
+        self.global_bone_rotations[0] = self.bone_rotations[0]
+        print(self.bone_positions[0])
+        for i in range(1, len(joint_parent)):
+            pi = joint_parent[i]
+            self.global_bone_positions[i] = self.global_bone_positions[pi] + \
+                R.from_quat(self.global_bone_rotations[pi]).apply(self.bone_positions[i])
+            self.global_bone_rotations[i] = (R.from_quat(self.global_bone_rotations[pi]) * R.from_quat(self.bone_rotations[i])).as_quat()
+
+        return (self.motion.joint_name, self.global_bone_positions, self.global_bone_rotations)
