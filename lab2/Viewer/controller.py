@@ -12,6 +12,8 @@ from scipy.spatial.transform import Slerp
 from panda3d.core import *
 from direct.showbase.ShowBase import ShowBase
 
+import chardet
+
 class KeyAndPad():
     def __init__(self, viewer) -> None:
         self.viewer = viewer
@@ -44,7 +46,7 @@ class KeyAndPad():
             'x': InputDevice.Axis.left_x,
             'z': InputDevice.Axis.left_y,
         }
-        self.viewer.attachInputDevice(self.device, prefix="gamepad")
+        self.viewer.attachInputDevice(self.device, prefix='gamepad')
         self.viewer.taskMgr.add(self.update_gamepad, 'update_gamepad', sort = 1)
         self.viewer.accept('gamepad-rshoulder', self.key_input, ['gait', 1])
         self.viewer.accept('gamepad-rshoulder-up', self.key_input, ['gait', 0])
