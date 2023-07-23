@@ -86,6 +86,11 @@ class Inertializer():
         return out_x, out_v, off_x, off_v
         # return in_x, in_v, [0,0,0,1], [0,0,0]
 
+    # @staticmethod
+    # def inertialze_reset(
+
+    # ):
+        
 
     @staticmethod
     def inertialize_pose_transition(
@@ -126,23 +131,23 @@ class Inertializer():
         world_dst_avelocity = R.from_quat(root_rotation).apply(\
             R.from_quat(bone_dst_rotations[0]).inv().apply(bone_dst_avels[0]))      
 
-        # bone_offset_positions[0], bone_offset_vels[0] = Inertializer.inertialize_transition_pos(
-        #     bone_offset_positions[0],
-        #     bone_offset_vels[0],
-        #     root_position,
-        #     root_vel,
-        #     root_position,
-        #     world_dst_velocity,
-        # )
+        bone_offset_positions[0], bone_offset_vels[0] = Inertializer.inertialize_transition_pos(
+            bone_offset_positions[0],
+            bone_offset_vels[0],
+            root_position,
+            root_vel,
+            root_position,
+            world_dst_velocity,
+        )
 
-        # bone_offset_rotations[0], bone_offset_avels[0] = Inertializer.inertialize_transition_quat(
-        #     bone_offset_rotations[0],
-        #     bone_offset_avels[0],
-        #     root_rotation,
-        #     root_avel,
-        #     root_rotation,
-        #     world_dst_avelocity
-        # )
+        bone_offset_rotations[0], bone_offset_avels[0] = Inertializer.inertialize_transition_quat(
+            bone_offset_rotations[0],
+            bone_offset_avels[0],
+            root_rotation,
+            root_avel,
+            root_rotation,
+            world_dst_avelocity
+        )
 
         for i in range(1, len(bone_offset_positions)):
             bone_offset_positions[i], bone_offset_vels[i] = Inertializer.inertialize_transition_pos(
@@ -264,7 +269,7 @@ class CharacterController():
 
         self.counter = 4
         self.cur_count = self.counter
-
+        self.first_frame = True
         # idle
         self.idle_motion = BVHMotion('motion_material/idle.bvh')
         self.idle = True
@@ -280,23 +285,42 @@ class CharacterController():
         self.inertailze_blending_halflife = 0.1
 
 
+        # # 当前pose
+        # self.bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
+        # self.bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
+        # self.bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
+        # self.bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
+
+        # # cur_frame
+        # self.cur_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
+        # self.cur_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
+        # self.cur_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
+        # self.cur_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
+
+        # # next_frame
+        # self.trans_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
+        # self.trans_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
+        # self.trans_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
+        # self.trans_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]        
+
         # 当前pose
-        self.bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
-        self.bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
-        self.bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
-        self.bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
+        self.bone_positions = self.pose_vectors['joint_position'][self.cur_frame].copy()
+        self.bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame].copy()
+        self.bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame].copy()
+        self.bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame].copy()
 
         # cur_frame
-        self.cur_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
-        self.cur_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
-        self.cur_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
-        self.cur_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
+        self.cur_bone_positions = self.pose_vectors['joint_position'][self.cur_frame].copy()
+        self.cur_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame].copy()
+        self.cur_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame].copy()
+        self.cur_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame].copy()
 
         # next_frame
-        self.trans_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
-        self.trans_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
-        self.trans_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
-        self.trans_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]        
+        self.trans_bone_positions = self.pose_vectors['joint_position'][self.cur_frame].copy()
+        self.trans_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame].copy()
+        self.trans_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame].copy()
+        self.trans_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame].copy()
+
 
         # offset
         self.offset_positions = np.zeros(self.pose_vectors['joint_position'][0].shape)
@@ -307,8 +331,8 @@ class CharacterController():
 
         # transition tmp var
         self.transition_src_position = np.zeros(3)
-        self.transition_dst_position = np.zeros(3)
         self.transition_src_rotation = np.array([0.,0.,0.,1.])
+        self.transition_dst_position = np.zeros(3)
         self.transition_dst_rotation = np.array([0.,0.,0.,1.])
 
         # adjust pose
@@ -433,7 +457,7 @@ class CharacterController():
                      desired_rot_list,
                      desired_vel_list,
                      desired_avel_list,
-                     current_gait
+                     current_gait,
                      ):
         '''
         此接口会被用于获取新的期望状态
@@ -464,8 +488,17 @@ class CharacterController():
         # self.cur_root_rot = joint_orientation[0]
         # self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
 
-        # 计算当前的feature vector
+        
+        if self.first_frame:
+            self.first_frame = False
+            self.bone_positions[0][0] = desired_pos_list[0][0]
+            self.bone_positions[0][2] = desired_pos_list[0][2]
+            self.transition_dst_position[:] = self.bone_positions[0]
+            self.transition_dst_rotation[:] = self.bone_rotations[0]
+            self.transition_src_position[:] = self.pose_vectors['joint_position'][self.cur_frame][0]
+            self.transition_src_rotation[:] = self.pose_vectors['joint_rotation'][self.cur_frame][0]
 
+        # 计算当前的feature vector
         cur_feature_vector = np.zeros([27])
         root_orientation = self.bone_rotations[0]
         root_position = self.bone_positions[0]
@@ -505,10 +538,10 @@ class CharacterController():
 
         # inertialize
         if best_frame != self.cur_frame and search:
-            self.trans_bone_positions = self.pose_vectors['joint_position'][best_frame]
-            self.trans_bone_rotations = self.pose_vectors['joint_rotation'][best_frame]
-            self.trans_bone_vels = self.pose_vectors['joint_velocity'][best_frame]
-            self.trans_bone_avels = self.pose_vectors['joint_avelocity'][best_frame]
+            self.trans_bone_positions[:] = self.pose_vectors['joint_position'][best_frame]
+            self.trans_bone_rotations[:] = self.pose_vectors['joint_rotation'][best_frame]
+            self.trans_bone_vels[:] = self.pose_vectors['joint_velocity'][best_frame]
+            self.trans_bone_avels[:] = self.pose_vectors['joint_avelocity'][best_frame]
             # update offset
             Inertializer.inertialize_pose_transition(
                 self.offset_positions,
@@ -542,10 +575,10 @@ class CharacterController():
         self.cur_frame += 1
         print(self.cur_frame)
         # get next pose
-        self.cur_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
-        self.cur_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
-        self.cur_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
-        self.cur_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
+        self.cur_bone_positions[:] = self.pose_vectors['joint_position'][self.cur_frame]
+        self.cur_bone_rotations[:] = self.pose_vectors['joint_rotation'][self.cur_frame]
+        self.cur_bone_vels[:] = self.pose_vectors['joint_velocity'][self.cur_frame]
+        self.cur_bone_avels[:] = self.pose_vectors['joint_avelocity'][self.cur_frame]
 
         # update pose with inerializer
         Inertializer.inertialize_pose_update(
@@ -571,7 +604,7 @@ class CharacterController():
             self.inertailze_blending_halflife,
             self.dt
         )
-        self.bone_positions[0] = self.motion.joint_position[self.cur_frame, 0]
+        # self.bone_positions[0] = self.motion.joint_position[self.cur_frame, 0]
         # self.bone_positions = self.motion.joint_position[self.cur_frame]
         # self.bone_rotations = self.motion.joint_rotation[self.cur_frame]
 
@@ -595,9 +628,9 @@ class CharacterController():
         # controller.set_rot(self.bone_rotations[0])
         
         # 角色跟随simulation object
-        self.bone_positions[0][0] = controller.position[0]
-        self.bone_positions[0][2] = controller.position[2]
-        self.bone_rotations[0] = controller.rotation
+        # self.bone_positions[0][0] = controller.position[0]
+        # self.bone_positions[0][2] = controller.position[2]
+        # self.bone_rotations[0] = controller.rotation
         
 
 

@@ -201,7 +201,7 @@ class Controller:
         self._node = self.futures[0]
         self.init_key_input()
         self.halflife = 0.27
-        self.move_speed = np.array([1.75, 1.5, 1.25])
+        self.move_speed = np.array([1.5, 1.5, 1.25])
     @property
     def node(self):
         return self._node

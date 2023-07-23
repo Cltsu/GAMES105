@@ -26,7 +26,7 @@ class InteractiveUpdate():
             self.controller.get_desired_state()
         self.character_controller.update_state(
                 desired_pos_list, desired_rot_list, 
-                desired_vel_list, desired_avel_list, current_gait
+                desired_vel_list, desired_avel_list, current_gait, 
                 )
         self.character_controller.sync_controller_and_character(
                 self.controller
