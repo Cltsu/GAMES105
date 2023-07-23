@@ -1,4 +1,12 @@
 # 以下部分均为可更改部分
+'''
+references:
+https://www.theorangeduck.com/page/code-vs-data-driven-displacement
+https://github.com/orangeduck/Motion-Matching
+https://www.gdcvault.com/play/1023280/Motion-Matching-and-The-Road
+https://www.bilibili.com/video/BV1GK4y1S7Zw
+Holden D, Kanoun O, Perepichka M, et al. Learned motion matching
+'''
 
 from scipy.spatial import KDTree
 from answer_task1 import *
@@ -86,10 +94,6 @@ class Inertializer():
         return out_x, out_v, off_x, off_v
         # return in_x, in_v, [0,0,0,1], [0,0,0]
 
-    # @staticmethod
-    # def inertialze_reset(
-
-    # ):
         
 
     @staticmethod
@@ -202,6 +206,9 @@ class Inertializer():
         world_avelocity = R.from_quat(transition_dst_rotation).apply(\
             R.from_quat(transition_src_rotation).inv().apply(bone_input_avels[0]))
         
+        # trick
+        world_position[1] = bone_input_positions[0][1]
+        world_rotation, _ = BVHMotion.decompose_rotation_with_yaxis(world_rotation)
 
         # inertialize root pos and rot
         bone_positions[0], bone_vels[0], offset_positions[0], offset_vels[0] = Inertializer.inertialize_update_pos(
@@ -260,16 +267,18 @@ class Inertializer():
 class CharacterController():
     def __init__(self, controller) -> None:
         self.motions = []
-        # self.motions.append(BVHMotion('motion_material/kinematic_motion/long_walk.bvh'))
-        self.motions.append(BVHMotion('motion_material/physics_motion/long_walk.bvh'))
+        self.motions.append(BVHMotion('motion_material/kinematic_motion/long_walk.bvh'))
+        # self.motions.append(BVHMotion('motion_material/physics_motion/long_walk.bvh'))
         self.motion = self.motions[0]
         self.controller = controller
         self.cur_frame = 1
         self.dt = 1. / 60.
 
-        self.counter = 4
+        self.counter = 2
         self.cur_count = self.counter
         self.first_frame = True
+        
+
         # idle
         self.idle_motion = BVHMotion('motion_material/idle.bvh')
         self.idle = True
@@ -278,30 +287,14 @@ class CharacterController():
         self.pose_vectors = self.extract_pose_vector()
         self.feature_vectors = self.extract_feature_vector()
         
+        self.feature_weight = np.ones(self.feature_vectors[0].shape)
+        # self.feature_weight[:12] = 0.5
         self.features_offset, self.features_scale = self.normalize_features()
         self.feature_kd_tree = KDTree(self.feature_vectors[:-60])
 
+
         # inertialize args
         self.inertailze_blending_halflife = 0.1
-
-
-        # # 当前pose
-        # self.bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
-        # self.bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
-        # self.bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
-        # self.bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
-
-        # # cur_frame
-        # self.cur_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
-        # self.cur_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
-        # self.cur_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
-        # self.cur_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]
-
-        # # next_frame
-        # self.trans_bone_positions = self.pose_vectors['joint_position'][self.cur_frame]
-        # self.trans_bone_rotations = self.pose_vectors['joint_rotation'][self.cur_frame]
-        # self.trans_bone_vels = self.pose_vectors['joint_velocity'][self.cur_frame]
-        # self.trans_bone_avels = self.pose_vectors['joint_avelocity'][self.cur_frame]        
 
         # 当前pose
         self.bone_positions = self.pose_vectors['joint_position'][self.cur_frame].copy()
@@ -357,19 +350,14 @@ class CharacterController():
         # compute mean and std
         features_offset = np.mean(self.feature_vectors, axis=0)
         features_scale = np.std(self.feature_vectors, axis=0)
-        
+
+        # weight
+        features_scale = features_scale / self.feature_weight
+
         # normalize features
         self.feature_vectors = (self.feature_vectors - features_offset) / features_scale
-        
+
         return features_offset, features_scale
-
-
-    def normalize_one_feature(self, feature):
-        return np.divide(feature - self.features_offset, self.features_scale)
-
-
-    def denormalize_one_feature(self, feature):
-        return np.multiply(feature, self.features_scale) + self.features_offset
     
 
     def extract_feature_vector(self):
@@ -478,16 +466,6 @@ class CharacterController():
             分别对应着面朝向移动速度,侧向移动速度和向后移动速度.目前根据LAFAN的统计数据设为(1.75,1.5,1.25)
             如果和你的角色动作速度对不上,你可以在init或这里对属性进行修改
         '''
-        # 一个简单的例子，输出第i帧的状态
-        # joint_name = self.motions[0].joint_name
-        # joint_translation, joint_orientation = self.motions[0].batch_forward_kinematics()
-        # joint_translation = joint_translation[self.cur_frame]
-        # joint_orientation = joint_orientation[self.cur_frame]
-        
-        # self.cur_root_pos = joint_translation[0]
-        # self.cur_root_rot = joint_orientation[0]
-        # self.cur_frame = (self.cur_frame + 1) % self.motions[0].motion_length
-
         
         if self.first_frame:
             self.first_frame = False
@@ -604,7 +582,8 @@ class CharacterController():
             self.inertailze_blending_halflife,
             self.dt
         )
-        # self.bone_positions[0] = self.motion.joint_position[self.cur_frame, 0]
+
+
         # self.bone_positions = self.motion.joint_position[self.cur_frame]
         # self.bone_rotations = self.motion.joint_rotation[self.cur_frame]
 

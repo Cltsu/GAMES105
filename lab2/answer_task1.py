@@ -200,8 +200,8 @@ class BVHMotion():
         pass
     
     #--------------------- 你的任务 -------------------- #
-    
-    def decompose_rotation_with_yaxis(self, rotation):
+    @staticmethod
+    def decompose_rotation_with_yaxis(rotation):
         '''
         输入: rotation 形状为(4,)的ndarray, 四元数旋转
         输出: Ry, Rxz，分别为绕y轴的旋转和转轴在xz平面的旋转，并满足R = Ry * Rxz
